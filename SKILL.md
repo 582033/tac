@@ -226,19 +226,22 @@ trend 模式的辩论轮数（`bull_trend` / `bear_trend`）与 research 相同�
 
 ## 7. 数据质量门禁
 
-| 条件（检查 bundle / meta.warnings） | 降级动作 |
-|---|---|
-| `quotes.rows` < 120 日 | 长期均线/趋势结论不可靠；`confidence` 上限 0.65，注明“样本不足 120 日” |
-| `quotes.rows` < 60 日 | 技术结论仅参考；`confidence` 上限 0.50，`action` 不得为“乐观” |
-| 财务缺失（`fundamentals.periods` 为空或核心字段全 `null`） | 不得基于基本面给出“乐观”；`confidence` 上限 0.55 |
-| `constraints.suspended == true` | `action` 不得为“乐观”；不给价格区间；`risk_level` 至少“中” |
-| `basic.is_st == true` | `risk_level` 至少“中”；必须提示退市/流动性风险；`confidence` 上限 0.60 |
-| 估值字段（PE/PB）全缺失 | 注明“估值不可比”；`confidence` 减 0.05 |
-| 任一 warning 存在 | 原样写入 `data_quality.warnings`，并在报告“数据质量与限制”列出 |
+**前 6 条门禁由 `scripts/assemble.py` 机器强制执行**（`_compute_gates` / `_apply_gates`）：组装 `final.json` 时自动压低 `confidence`、必要时把“乐观”降为“中性”、抬升 `risk_level`、清空价格区间，并把触发记录写入 `data_quality.gates`。宿主不要手工“绕过”或“再调高”这些值；若认为门禁误判，唯一正确做法是补数据后重新取数。
+
+| 条件（由 assemble.py 检查 bundle） | 降级动作 | 执行者 |
+|---|---|---|
+| `quotes.rows` < 120 日 | `confidence` 上限 0.65，注明“样本不足 120 日” | assemble.py 自动 |
+| `quotes.rows` < 60 日 | `confidence` 上限 0.50，`action` 不得为“乐观”（自动降为“中性”） | assemble.py 自动 |
+| 财务缺失（`fundamentals.periods` 为空或核心字段全 `null`） | 不得“乐观”；`confidence` 上限 0.55 | assemble.py 自动 |
+| `constraints.suspended == true` | `action` 不得为“乐观”；清空价格区间；`risk_level` 至少“中” | assemble.py 自动 |
+| `basic.is_st == true` | `risk_level` 至少“中”；`confidence` 上限 0.60 | assemble.py 自动 |
+| 估值字段（PE/PB）全缺失 | `confidence` 减 0.05 | assemble.py 自动 |
+| 任一 warning 存在 | 原样写入 `data_quality.warnings`，并在报告“数据质量与限制”列出 | 宿主登记，render 展示 |
 
 - `quotes.rows` < 30 时 `indicators.py` 会退出 3，按第 9 节处理，不要硬跑。
-- 多个门禁同时触发时取最严格的上限；不得为了得到“乐观”而忽略门禁。
+- 多个门禁同时触发时取最严格的上限；`assemble.py` 已实现该逻辑。
 - `data_quality.completeness` 按可用核心字段比例估算（0–1），不得虚报。
+- 宿主仍应在 Phase 2–4 的分析中主动说明数据限制（如“样本不足 120 日”），门禁只兜底、不替代分析中的诚实表述。
 
 ## 8. 输出契约
 

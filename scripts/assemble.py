@@ -201,6 +201,97 @@ def _validate_final(final: Dict[str, Any]) -> None:
             raise ValueError("analyst_reports 缺 %s" % role)
 
 
+def _compute_gates(bundle: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """根据 bundle 计算触发的数据质量门禁（SKILL.md 门禁表的机器版）。"""
+    rows = (bundle.get("quotes") or {}).get("rows") or []
+    days = len(rows)
+    gates: List[Dict[str, Any]] = []
+    if days < 60:
+        gates.append({"rule": "quotes_lt_60", "effect": "confidence<=0.50; action 不得为乐观"})
+    elif days < 120:
+        gates.append({"rule": "quotes_lt_120", "effect": "confidence<=0.65"})
+
+    periods = ((bundle.get("fundamentals") or {}).get("periods")) or []
+    core_keys = ("roe", "net_margin", "revenue", "net_profit")
+    finance_ok = bool(periods) and any(
+        any(p.get(k) is not None for k in core_keys) for p in periods
+    )
+    if not finance_ok:
+        gates.append({"rule": "finance_missing", "effect": "confidence<=0.55; action 不得为乐观"})
+
+    valuation = bundle.get("valuation") or {}
+    if valuation.get("pe_ttm") is None and valuation.get("pb") is None:
+        gates.append({"rule": "valuation_missing", "effect": "confidence-0.05"})
+
+    constraints = bundle.get("constraints") or {}
+    if constraints.get("suspended"):
+        gates.append({"rule": "suspended",
+                      "effect": "action 不得为乐观; 不给价格区间; risk_level 至少中"})
+    if (bundle.get("basic") or {}).get("is_st"):
+        gates.append({"rule": "is_st", "effect": "confidence<=0.60; risk_level 至少中"})
+    return gates
+
+
+def _apply_gates(final_doc: Dict[str, Any], gates: List[Dict[str, Any]]) -> None:
+    """把触发的门禁机械地施加到 final.json：压 confidence、必要时降 action。"""
+    if not gates:
+        return
+    plan = final_doc["investment_plan"]
+    final = final_doc["final"]
+    risk = final_doc["risk"]
+
+    caps: List[float] = []
+    forbid_optimistic = False
+    for gate in gates:
+        rule, effect = gate["rule"], gate["effect"]
+        if rule == "quotes_lt_60":
+            caps.append(0.50)
+            forbid_optimistic = True
+        elif rule == "quotes_lt_120":
+            caps.append(0.65)
+        elif rule == "finance_missing":
+            caps.append(0.55)
+            forbid_optimistic = True
+        elif rule == "valuation_missing":
+            caps.append(float(plan["confidence"]) - 0.05)
+        elif rule == "is_st":
+            caps.append(0.60)
+        elif rule == "suspended":
+            forbid_optimistic = True
+        final_doc["data_quality"]["warnings"].append(
+            "门禁触发：%s（%s）" % (rule, effect))
+
+    cap = min(caps) if caps else 1.0
+    capped = min(float(plan["confidence"]), cap)
+    if capped < float(plan["confidence"]):
+        plan["confidence"] = round(capped, 4)
+        final["confidence"] = round(capped, 4)
+        final_doc["data_quality"]["warnings"].append(
+            "门禁降级：confidence 上调受限，已压至 %.2f" % capped)
+
+    if forbid_optimistic and plan["action"] == "乐观":
+        plan["action"] = "中性"
+        final["action"] = "中性"
+        final_doc["data_quality"]["warnings"].append(
+            "门禁降级：action 由乐观下调为中性（数据不足/停牌/财务缺失）")
+
+    if any(g["rule"] in ("suspended", "is_st") for g in gates) and risk["risk_level"] == "低":
+        risk["risk_level"] = "中"
+        risk["risk_score"] = max(float(risk["risk_score"]), 0.5)
+        final["risk_exposure_ratio"] = "中"
+        final_doc["data_quality"]["warnings"].append(
+            "门禁降级：risk_level 至少为中（停牌/ST）")
+
+    if any(g["rule"] == "suspended" for g in gates):
+        rng = final["price_analysis_range"]
+        if rng.get("low") is not None or rng.get("high") is not None:
+            final["price_analysis_range"] = {"low": None, "high": None}
+            final_doc["data_quality"]["warnings"].append(
+                "门禁降级：停牌状态下不给价格区间")
+
+    final_doc["data_quality"]["gates"] = gates
+
+
 def _run_trend(args, run_dir: str, bundle: Dict[str, Any]) -> int:
     """mode=trend：读取 7 份走势报告，机械映射成 final.json（不生成新判断）。"""
     reports_dir = os.path.join(run_dir, "reports")
@@ -301,6 +392,8 @@ def _run_trend(args, run_dir: str, bundle: Dict[str, Any]) -> int:
             "warnings": warnings,
         },
     }
+
+    _apply_gates(final_doc, _compute_gates(bundle))
 
     try:
         _validate_final(final_doc)
@@ -429,6 +522,8 @@ def main(argv: Optional[List[str]] = None) -> int:
             "warnings": warnings,
         },
     }
+
+    _apply_gates(final_doc, _compute_gates(bundle))
 
     try:
         _validate_final(final_doc)

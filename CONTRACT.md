@@ -298,3 +298,33 @@ scripts/assemble.py            # --mode research|trend（默认 research）
 scripts/render.py              # 新增"## 走势分析"章节
 tests/test_trend_mode.py       # trend 模式离线测试（可直接 python 运行，兼容 pytest）
 ```
+
+## 8. 数据质量门禁（机器执行，v1.1.1 追加）
+
+SKILL.md 第 7 节门禁表的前 6 条由 `scripts/assemble.py` 在组装 `final.json` 时自动强制执行，宿主无需也不得手工施加：
+
+- 计算入口：`_compute_gates(bundle)`（只读 bundle，返回 `[{rule, effect}]`）
+- 执行入口：`_apply_gates(final_doc, gates)`（在 `_validate_final` 之前调用，research 与 trend 两条路径都会执行）
+
+| rule | 触发条件 | 机器效果 |
+|---|---|---|
+| `quotes_lt_120` | `quotes.rows` < 120 | confidence 压至 ≤0.65 |
+| `quotes_lt_60` | `quotes.rows` < 60 | confidence ≤0.50；action=乐观 时降为中性 |
+| `finance_missing` | `fundamentals.periods` 为空或 roe/net_margin/revenue/net_profit 全 null | confidence ≤0.55；乐观降中性 |
+| `valuation_missing` | `valuation.pe_ttm` 与 `pb` 均为 null | confidence 再减 0.05 |
+| `suspended` | `constraints.suspended == true` | 乐观降中性；`price_analysis_range` 清空为 null；risk_level=低 时抬到中 |
+| `is_st` | `basic.is_st == true` | confidence ≤0.60；risk_level=低 时抬到中 |
+
+规则细节：
+- 多门禁并存时 confidence 取各上限的最小值；action/risk 的降级只降不升。
+- 每条触发都会追加 `门禁触发：<rule>（<effect>）` 到 `data_quality.warnings`，机器降级另记 `门禁降级：…`。
+- 触发清单原样写入 `data_quality.gates`（schema 已在 `references/output-schema.json` 增加可选字段）。
+- `investment_plan` 与 `final` 的 action/confidence 同步修改，保证两者一致（verifier 校验依赖一致性）。
+
+### 8.1 文件清单（门禁增量）
+
+```
+scripts/assemble.py            # _compute_gates / _apply_gates
+references/output-schema.json  # data_quality 增加可选 gates 数组
+tests/test_gates.py            # 7 项门禁测试（离线，可直接 python 运行）
+```

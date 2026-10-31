@@ -14,6 +14,7 @@
 - **trend 走势分析模式**：新增轻量走势分析模式，在完整六分析师流程之外提供单股走势快速研判路径。
 - **subagent 调度协议**：新增 `references/subagent-protocol.md`，定义何时使用 subagent、并行/串行时机与 spawn 契约。
 - **切片/组装脚本**：新增 `scripts/slice_bundle.py`（按角色切出最小上下文 `slices/{role}.json`）与 `scripts/assemble.py`（汇总角色报告并校验为 `final.json`）。
+- **质量门禁机器执行**：120/60 日样本、财务缺失、估值缺失、停牌、ST 五类门禁由 `assemble.py` 在组装时自动强制（压 confidence、降级乐观、抬升风险等级、清空价格区间），触发记录写入 `data_quality.gates`（见 CONTRACT.md 第 8 节）。
 
 ## [1.0.0] - 2026-10-31
 

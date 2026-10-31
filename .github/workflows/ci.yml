@@ -36,5 +36,9 @@ jobs:
         run: |
           if [ -f tests/test_trend_mode.py ]; then python tests/test_trend_mode.py; fi
 
+      - name: Test data quality gates (if present)
+        run: |
+          if [ -f tests/test_gates.py ]; then python tests/test_gates.py; fi
+
       - name: Offline selftest
         run: python scripts/selftest.py

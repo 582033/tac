@@ -58,6 +58,17 @@ BUNDLE_TECH = {
         "as_of": "2026-10-31",
         "warnings": [],
     },
+    # 200 个交易日 + 财务 + 估值齐全，确保不触发 assemble.py 的质量门禁
+    # （门禁行为由 tests/test_gates.py 单独覆盖）
+    "quotes": {"adjust": "qfq", "period": "daily",
+               "rows": [{"date": "2026-%02d-%02d" % (1 + i // 28, 1 + i % 28),
+                         "close": 100.0 + i} for i in range(200)]},
+    "fundamentals": {"periods": [{"period": "2026-09-30", "report_type": "quarter",
+                                  "roe": 0.2, "net_margin": 0.5,
+                                  "revenue": 1.0, "net_profit": 0.5}]},
+    "valuation": {"pe_ttm": 21.0, "pb": 6.0},
+    "constraints": {"suspended": False, "board": "main", "price_limit_pct": 0.1},
+    "basic": {"is_st": False},
 }
 
 

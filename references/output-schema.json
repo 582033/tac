@@ -226,6 +226,19 @@
         "warnings": {
           "type": "array",
           "items": {"type": "string", "minLength": 1}
+        },
+        "gates": {
+          "description": "assemble.py 自动执行的质量门禁记录（SKILL.md 门禁表的机器版）；无触发时可省略。",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["rule", "effect"],
+            "properties": {
+              "rule": {"type": "string", "minLength": 1},
+              "effect": {"type": "string", "minLength": 1}
+            }
+          }
         }
       }
     },
