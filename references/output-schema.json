@@ -1,0 +1,321 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://tac-skill.local/schemas/output-schema.json",
+  "title": "A股研究最终结果 final.json",
+  "description": "宿主 AI 生成的最终研究结果，供 scripts/render.py 消费。严格对应 CONTRACT.md 第 4 节；只允许契约字段，缺失值用 null，不得编造数字。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "symbol",
+    "name",
+    "as_of",
+    "depth",
+    "analyst_reports",
+    "debate",
+    "investment_plan",
+    "risk",
+    "final",
+    "data_quality"
+  ],
+  "properties": {
+    "schema_version": {
+      "description": "结果 schema 版本，固定为 1.0。",
+      "const": "1.0"
+    },
+    "symbol": {
+      "description": "6 位 A 股代码，不含交易所前缀。",
+      "type": "string",
+      "pattern": "^[0-9]{6}$"
+    },
+    "name": {
+      "description": "证券简称。",
+      "type": "string",
+      "minLength": 1
+    },
+    "as_of": {
+      "description": "分析基准日（YYYY-MM-DD）。",
+      "type": "string",
+      "format": "date"
+    },
+    "depth": {
+      "description": "研究深度，与 CONTRACT.md 第 5 节轮次映射一致。",
+      "type": "string",
+      "enum": ["quick", "standard", "deep", "full"]
+    },
+    "analyst_reports": {
+      "description": "六位分析师报告，值为 Markdown 文本。六个 key 全部必填。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["index", "sector", "market", "fundamentals", "news", "social"],
+      "properties": {
+        "index": {"type": "string", "minLength": 1},
+        "sector": {"type": "string", "minLength": 1},
+        "market": {"type": "string", "minLength": 1},
+        "fundamentals": {"type": "string", "minLength": 1},
+        "news": {"type": "string", "minLength": 1},
+        "social": {"type": "string", "minLength": 1}
+      }
+    },
+    "debate": {
+      "description": "多空辩论结果与逐轮发言历史。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rounds", "bull", "bear", "history"],
+      "properties": {
+        "rounds": {
+          "description": "实际完成的投资辩论轮数。",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3
+        },
+        "bull": {
+          "description": "乐观方最终陈述（Markdown）。",
+          "type": "string"
+        },
+        "bear": {
+          "description": "审慎方最终陈述（Markdown）。",
+          "type": "string"
+        },
+        "history": {
+          "description": "按时间顺序的逐轮发言。",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["role", "text"],
+            "properties": {
+              "role": {
+                "type": "string",
+                "enum": ["bull", "bear"]
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      }
+    },
+    "investment_plan": {
+      "description": "研究经理综合多空后的研究倾向。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["action", "confidence", "points", "reasoning"],
+      "properties": {
+        "action": {"$ref": "#/definitions/action"},
+        "confidence": {"$ref": "#/definitions/confidence"},
+        "points": {
+          "description": "支撑结论的要点，每条应可追溯到分析师字段或辩论发言。",
+          "type": "array",
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "reasoning": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "risk": {
+      "description": "风险评估师的结构化结论，五个字段均必填。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["risk_level", "risk_score", "key_risks", "risk_control", "opinions"],
+      "properties": {
+        "risk_level": {
+          "type": "string",
+          "enum": ["低", "中", "高"]
+        },
+        "risk_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "key_risks": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        },
+        "risk_control": {
+          "description": "观察、复核与失效条件，不写买卖指令。",
+          "type": "string",
+          "minLength": 1
+        },
+        "opinions": {
+          "description": "高弹性、防御、基准三方意见摘要。",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["aggressive", "conservative", "neutral"],
+          "properties": {
+            "aggressive": {"type": "string", "minLength": 1},
+            "conservative": {"type": "string", "minLength": 1},
+            "neutral": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
+    "final": {
+      "description": "最终研究结论。价格只给区间，不给单点目标价。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "confidence",
+        "price_analysis_range",
+        "risk_reference_price",
+        "risk_exposure_ratio",
+        "reasoning",
+        "summary",
+        "disclaimer"
+      ],
+      "properties": {
+        "action": {"$ref": "#/definitions/action"},
+        "confidence": {"$ref": "#/definitions/confidence"},
+        "price_analysis_range": {
+          "description": "价格分析区间；无法给出时 low/high 均为 null。",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["low", "high"],
+          "properties": {
+            "low": {
+              "type": ["number", "null"],
+              "minimum": 0
+            },
+            "high": {
+              "type": ["number", "null"],
+              "minimum": 0
+            }
+          }
+        },
+        "risk_reference_price": {
+          "description": "风险控制参考价；无依据时为 null。",
+          "type": ["number", "null"],
+          "minimum": 0
+        },
+        "risk_exposure_ratio": {
+          "type": "string",
+          "enum": ["低", "中", "高"]
+        },
+        "reasoning": {
+          "type": "string",
+          "minLength": 1
+        },
+        "summary": {
+          "type": "string",
+          "minLength": 1
+        },
+        "disclaimer": {
+          "description": "固定免责声明：本报告仅供研究参考，不构成投资建议。",
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "data_quality": {
+      "description": "数据完整度与取数警告，用于报告降级判断。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["completeness", "warnings"],
+      "properties": {
+        "completeness": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "warnings": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "trend": {
+      "description": "trend 模式（股价走势分析）专属结论，原样来自 trend_manager 的 JSON 块；research 模式不含该字段。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["direction", "confidence", "horizon", "key_levels", "scenarios", "reasoning"],
+      "properties": {
+        "direction": {
+          "description": "走势方向，仅允许三值；不得转写为买卖建议。",
+          "type": "string",
+          "enum": ["上行", "震荡", "下行"]
+        },
+        "confidence": {"$ref": "#/definitions/confidence"},
+        "horizon": {
+          "description": "走势判断的时间窗，如“1-3 个月”。",
+          "type": "string",
+          "minLength": 1
+        },
+        "key_levels": {
+          "description": "关键位；价位用于刻画区间，禁止当单点目标价使用。",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["support", "resistance"],
+          "properties": {
+            "support": {
+              "type": "array",
+              "items": {"$ref": "#/definitions/level"}
+            },
+            "resistance": {
+              "type": "array",
+              "items": {"$ref": "#/definitions/level"}
+            }
+          }
+        },
+        "scenarios": {
+          "description": "走势情景，2-3 个；range 必须是区间。",
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 3,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "condition", "range"],
+            "properties": {
+              "name": {"type": "string", "minLength": 1},
+              "condition": {"type": "string", "minLength": 1},
+              "range": {"$ref": "#/definitions/priceRange"}
+            }
+          }
+        },
+        "reasoning": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "definitions": {
+    "action": {
+      "description": "研究倾向，仅允许三值；禁止买入/卖出/加仓/减仓等交易指令。",
+      "type": "string",
+      "enum": ["乐观", "审慎", "中性"]
+    },
+    "confidence": {
+      "description": "置信度，0-1 的小数，不得写百分数。",
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "level": {
+      "description": "单个关键位：价位 + 类型（如 强支撑/阻力）。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["price", "type"],
+      "properties": {
+        "price": {"type": "number", "minimum": 0},
+        "type": {"type": "string", "minLength": 1}
+      }
+    },
+    "priceRange": {
+      "description": "价格区间，low/high 成对出现；禁止单点。",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["low", "high"],
+      "properties": {
+        "low": {"type": "number", "minimum": 0},
+        "high": {"type": "number", "minimum": 0}
+      }
+    }
+  }
+}

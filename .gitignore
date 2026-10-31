@@ -1,0 +1,12 @@
+# Python 运行产物
+.venv/
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+
+# 运行时生成的数据（fixtures/ 是测试夹具，必须保留在仓库中）
+data/
+
+# 编辑器 / 系统文件
+.DS_Store

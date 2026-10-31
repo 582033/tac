@@ -1,0 +1,9 @@
+# A 股研究 Skill 运行时依赖（Python 3.9+）
+# 主数据源：AKShare（免费、无需 key）
+akshare>=1.14,<2
+pandas>=2.0,<2.3
+numpy>=1.24,<2.1
+requests>=2.28
+
+# 可选：如果有 Tushare token，可获得更完整的财务与资金流字段
+# tushare>=1.4

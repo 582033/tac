@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.9', '3.11']
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt jsonschema
+
+      - name: Test indicators
+        run: python tests/test_indicators.py
+
+      - name: Test fetch_data
+        run: python tests/test_fetch_data.py
+
+      - name: Test trend mode (if present)
+        run: |
+          if [ -f tests/test_trend_mode.py ]; then python tests/test_trend_mode.py; fi
+
+      - name: Offline selftest
+        run: python scripts/selftest.py
