@@ -200,7 +200,7 @@ python3 scripts/render.py --input "$RUN_DIR/final.json" --format md > report.md 
 
 ---
 
-## 三种安装方式
+## 安装方式
 
 ### 方式一：安装为全局 Claude Code Skill
 
@@ -238,6 +238,29 @@ python3 scripts/render.py --input final.json --format html --out report.html
 ```
 
 如果只想验证渲染器，可手写一份最小 `final.json`，或参考 `references/output-schema.json`。
+
+### 方式四：在 OpenAI Codex CLI 中安装
+
+Codex CLI 遵循同一套 Agent Skills 开放标准（agentskills.io），可直接复用本 Skill 的 `SKILL.md`，但扫描目录是 `.agents/skills` 而非 `.claude/skills`：
+
+```bash
+# 用户级（跨项目可用）
+mkdir -p ~/.agents/skills
+cp -R tac ~/.agents/skills/tac
+
+# 或项目级（仅当前仓库可用）
+mkdir -p .agents/skills
+cp -R /path/to/tac .agents/skills/tac
+```
+
+使用方式：
+
+- **显式调用**：在 Codex CLI 中输入 `$tac 600031`（`$` 是 Codex 的技能提及前缀；`/skills` 可列出已安装技能）。
+- **隐式触发**：直接说“帮我研究一下 600031”，Codex 按 `SKILL.md` frontmatter 的 description 自动选用。
+- Codex 更新技能目录后自动感知，未生效时重启一次 Codex。
+- 依赖仍需装在 Codex 的运行环境里（`pip install -r requirements.txt`），或先进入 Skill 目录激活 `.venv`；`python3 scripts/...` 各命令在 Codex 的 shell 中同样可用。
+
+若想把技能设为默认关闭，可在 `~/.codex/config.toml` 加 `[[skills.config]]` 条目并置 `enabled = false`（改后需重启）。
 
 ---
 
