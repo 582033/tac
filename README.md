@@ -11,6 +11,7 @@
 ```text
 tac/
 ├── SKILL.md                     # 宿主入口：模式、适用范围、4 个 Phase、深度表、门禁
+├── AGENTS.md                    # 通用 agent 入口（Cursor/Gemini CLI 等读取）
 ├── README.md                    # 本文档
 ├── CONTRACT.md                  # 内部接口契约（bundle / final schema、CLI）
 ├── requirements.txt             # 运行时依赖
@@ -260,7 +261,15 @@ cp -R /path/to/tac .agents/skills/tac
 - Codex 更新技能目录后自动感知，未生效时重启一次 Codex。
 - 依赖仍需装在 Codex 的运行环境里（`pip install -r requirements.txt`），或先进入 Skill 目录激活 `.venv`；`python3 scripts/...` 各命令在 Codex 的 shell 中同样可用。
 
+> **常见问题：`/tac` 无法触发。** 这是正常的——`/` 斜杠命令是 Claude Code 的调用方式，Codex 不支持用 `/` 调技能。请改用 `$tac 600031`，或先运行 `/skills` 确认技能已被识别：若列表中没有 `tac`，检查安装路径是否为 `~/.agents/skills/tac`（Codex **不扫描** `~/.codex/skills`），并确认 `SKILL.md` 位于该目录第一层。
+
 若想把技能设为默认关闭，可在 `~/.codex/config.toml` 加 `[[skills.config]]` 条目并置 `enabled = false`（改后需重启）。
+
+### 方式五：通过 AGENTS.md 接入其它 AI（Cursor / Gemini CLI 等）
+
+对于没有 Skill 发现机制、但会读取仓库根目录 `AGENTS.md` 的 agent（Cursor、Gemini CLI、Amp 等），本仓库自带了一份 `AGENTS.md`：它说明何时触发本 Skill、如何定位并完整阅读 `SKILL.md` 执行，以及输出硬约束（三值结论、价格区间、免责声明）。
+
+无需安装动作——只要 agent 在本仓库（或包含本 Skill 的目录）中工作并读取 `AGENTS.md`，即可被引导执行；配合各宿主自身的 rules/记忆机制把 `AGENTS.md` 纳入上下文效果更稳定。对完全没有 agent 能力的场景（网页版对话等），退回方式三：把 `SKILL.md` 内容作为提示词、脚本在本地运行。
 
 ---
 
