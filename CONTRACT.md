@@ -8,7 +8,7 @@
 ```
 scripts/fetch_data.py     # 取数 + 归一化 -> bundle.json
 scripts/indicators.py     # 读 bundle.json，追加 technical 段 -> bundle.tech.json
-scripts/render.py         # 读 final JSON -> Markdown 报告
+scripts/render.py         # 读 final JSON -> HTML 报告（--format md 可选 Markdown）
 scripts/selftest.py       # 离线自检
 references/roles.md       # 角色提示词
 references/output-schema.json
@@ -127,7 +127,7 @@ python scripts/fetch_data.py --symbol 600519 [--as-of YYYY-MM-DD] [--days 400]
        [--start YYYY-MM-DD] [--out PATH] [--source akshare|tushare]
        [--offline FIXTURE] [--strict]
 ```
-- 默认 `--out data/{symbol}_{as_of}.json`
+- 默认 `--out data/{symbol}/{as_of}/bundle.json`
 - `--offline` 时直接读取 fixture 并补齐 meta，**不访问网络**（用于测试/演示）
 - 退出码：0 完整；2 部分成功（有 warnings）；3 致命错误（无法得到行情）
 - 必须打印一行 `WROTE <path>` 便于脚本解析
@@ -143,10 +143,11 @@ python scripts/indicators.py --input bundle.json [--out PATH] [--window 400]
 
 ### render.py
 ```
-python scripts/render.py --input final.json [--out report.md]
+python scripts/render.py --input final.json [--format html|md] [--out report.html]
 ```
 - 输入是第 4 节定义的 final JSON
-- 输出中文 Markdown，固定章节：结论摘要 / 六位分析师观点 / 多空辩论 / 研究经理结论 / 风险辩论 / 最终研究结论 / 数据质量与限制 / 免责声明
+- 默认输出自包含 HTML 网页（`--format md` 可选 Markdown），固定章节：结论摘要 / 六位分析师观点 / 多空辩论 / 研究经理结论 / 风险辩论 / 最终研究结论 / 数据质量与限制 / 免责声明
+- render.py 本身不打开浏览器、不访问网络；是否自动打开报告由宿主流程决定（SKILL.md Phase 4 第 6 步）
 
 ## 4. 最终分析结果 schema（final.json）
 
@@ -274,7 +275,7 @@ scripts/assemble.py --run-dir RUN_DIR [--depth ...] [--mode research|trend]
 - 仍要求 `RUN_DIR/bundle.tech.json` 存在（读取 meta）。
 
 ```
-scripts/render.py --input final.json [--out report.md]
+scripts/render.py --input final.json [--format html|md] [--out report.html]
 ```
 - final.json 含非空 `trend` 对象时，在"多空辩论"之后插入"## 走势分析"：走势方向、置信度、时间窗、关键位表（类型/价位）、情景表（名称/条件/区间）、走势推理摘要；direction 仅按 上行/震荡/下行 展示，不得渲染成买卖建议；章节末固定输出"以上为走势研究区间，不构成买卖依据。"；字段缺失按"数据缺失"降级，不中断渲染。
 

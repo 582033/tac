@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Render an A-share research ``final.json`` into a Chinese Markdown report.
+"""Render an A-share research ``final.json`` into a Chinese report.
 
 Pure standard library: no pandas / numpy / network access.
 
+Two output formats: a self-contained HTML page (default) and Markdown.
+
 CLI (see CONTRACT.md section 3)::
 
-    python3 scripts/render.py --input final.json --out report.md
-    python3 scripts/render.py --input final.json > report.md
+    python3 scripts/render.py --input final.json --out report.html
+    python3 scripts/render.py --input final.json --format md --out report.md
+    python3 scripts/render.py --input final.json > report.html
 
 Exit codes::
 
@@ -17,6 +20,7 @@ Exit codes::
 from __future__ import annotations
 
 import argparse
+import html as html_lib
 import json
 import math
 import os
@@ -891,6 +895,551 @@ def render_document(document: Dict[str, Any], warnings: Sequence[Any]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# HTML rendering
+# ---------------------------------------------------------------------------
+
+# A 股配色语义：红涨绿跌。乐观=红、审慎=绿、中性=琥珀。
+ACTION_CLASS = {"乐观": "opt", "审慎": "caut", "中性": "neut"}
+RISK_CLASS = {"低": "caut", "中": "neut", "高": "opt"}
+
+HTML_CSS = """
+:root{--bg:#f4f6f8;--card:#ffffff;--ink:#1d2733;--muted:#5f6b7a;--line:#e3e7ec;
+--accent:#2b5fc7;--opt:#c0392b;--opt-bg:#fceae7;--caut:#0e7a55;--caut-bg:#e4f4ed;
+--neut:#a86a00;--neut-bg:#fbf1dd;--code:#f0f2f5}
+@media (prefers-color-scheme:dark){:root{--bg:#12161d;--card:#1a2029;--ink:#e4e8ee;
+--muted:#96a0ad;--line:#2b3441;--accent:#7da4f0;--opt:#ef8b7e;--opt-bg:#3a241f;
+--caut:#6ec9a4;--caut-bg:#173026;--neut:#e0b268;--neut-bg:#352a15;--code:#222a35}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.75
+-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei","Source Han Sans SC",sans-serif}
+main{max-width:880px;margin:0 auto;padding:28px 16px 48px}
+header h1{font-size:26px;margin:0 0 6px}
+header .lead{color:var(--muted);margin:0 0 12px;font-size:13px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 4px;padding:0;list-style:none}
+.chips span{background:var(--card);border:1px solid var(--line);border-radius:999px;
+padding:3px 12px;font-size:12.5px;color:var(--muted)}
+.chips b{color:var(--ink);font-weight:600}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;
+padding:22px 24px;margin:18px 0}
+.card h2{font-size:19px;margin:0 0 14px;padding-bottom:10px;border-bottom:1px solid var(--line)}
+.card h3{font-size:15.5px;margin:18px 0 8px}
+.card h4{font-size:14px;margin:16px 0 6px;color:var(--muted)}
+.badge{display:inline-block;padding:5px 16px;border-radius:999px;font-weight:700;font-size:15px}
+.badge.opt{background:var(--opt-bg);color:var(--opt)}
+.badge.caut{background:var(--caut-bg);color:var(--caut)}
+.badge.neut{background:var(--neut-bg);color:var(--neut)}
+.badge.dim{background:var(--code);color:var(--muted)}
+.bar{height:8px;background:var(--code);border-radius:99px;margin:6px 0 2px;overflow:hidden}
+.bar i{display:block;height:8px;border-radius:99px;background:var(--accent)}
+.bar.opt i{background:var(--opt)}.bar.caut i{background:var(--caut)}.bar.neut i{background:var(--neut)}
+.kv{display:grid;grid-template-columns:1fr 1fr;gap:14px 24px;margin:10px 0 4px}
+.kv .k{font-size:12.5px;color:var(--muted)}
+.kv .v{font-size:15px;font-weight:600}
+.range{position:relative;height:12px;background:linear-gradient(90deg,var(--caut-bg),var(--code),var(--opt-bg));
+border:1px solid var(--line);border-radius:99px;margin:14px 0 4px}
+.range em{position:absolute;top:-3px;height:18px;border-radius:99px;background:var(--accent);opacity:.35}
+.range-labels{display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted)}
+.note{background:var(--code);border-left:3px solid var(--accent);border-radius:6px;
+padding:8px 12px;color:var(--muted);font-size:13.5px;margin:10px 0}
+table{width:100%;border-collapse:collapse;font-size:13.5px;margin:8px 0}
+th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{color:var(--muted);font-weight:600;font-size:12.5px}
+ul,ol{margin:8px 0;padding-left:22px}
+li{margin:4px 0}
+pre{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:12px;
+overflow:auto;font-size:12.5px;line-height:1.5}
+code{background:var(--code);border-radius:4px;padding:1px 5px;font-size:.92em}
+pre code{background:none;padding:0}
+.missing{color:var(--muted);font-style:italic}
+.sub{border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:12px 0}
+.sub.bull{border-left:3px solid var(--opt)}
+.sub.bear{border-left:3px solid var(--caut)}
+footer{color:var(--muted);font-size:12.5px;margin-top:24px;line-height:1.7}
+@media print{body{background:#fff}.card{border-color:#ccc;break-inside:avoid}}
+"""
+
+
+def _pct_num(value: Any) -> Optional[float]:
+    """0-1（或 0-100 容忍）比值 → 0-100 数字，供进度条使用。"""
+    if not is_number(value):
+        return None
+    number = float(value)
+    if number <= 1.0:
+        return number * 100.0
+    return number if number <= 100.0 else None
+
+
+def _bar(label: str, value: Any, cls: str = "") -> str:
+    num = _pct_num(value)
+    text = fmt_pct(value)
+    width = "width:{:.1f}%".format(num) if num is not None else "width:0"
+    return (
+        '<div class="k"><span class="k">{}</span>'
+        '<div class="bar {}"><i style="{}"></i></div>'
+        '<span class="v">{}</span></div>'
+    ).format(html_lib.escape(label), cls, width, html_lib.escape(text))
+
+
+def _inline_md(text: Any) -> str:
+    """转义并渲染行内 Markdown：**加粗**、`代码`。"""
+    s = html_lib.escape(str(text))
+    s = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", s)
+    s = re.sub(r"`([^`]+)`", r"<code>\1</code>", s)
+    return s
+
+
+def _md_to_html(value: Any, missing_note: str = "") -> str:
+    """把 as_text 风格的 Markdown 块转成 HTML 片段。
+
+    处理：围栏代码、标题、引用、无序/有序列表、管道表格、段落；
+    其余行内标记只处理加粗与行内代码。空值降级为“数据缺失”。
+    """
+    note = "（{}）".format(missing_note) if missing_note else ""
+    if not has_content(value):
+        return '<p class="missing">{}{}</p>'.format(MISSING, html_lib.escape(note))
+    if isinstance(value, (dict, list, tuple)) and not isinstance(value, str):
+        value = as_text(value, missing_note)
+    lines = str(value).replace("\r\n", "\n").split("\n")
+
+    out: List[str] = []
+    para: List[str] = []
+    list_buf: List[str] = []
+    list_tag = "ul"
+    quoted: List[str] = []
+    fenced = False
+    fence_buf: List[str] = []
+
+    def flush_para() -> None:
+        if para:
+            out.append("<p>{}</p>".format(_inline_md(" ".join(para))))
+            para.clear()
+
+    def flush_list() -> None:
+        if list_buf:
+            out.append("<{t}>{items}</{t}>".format(
+                t=list_tag,
+                items="".join("<li>{}</li>".format(_inline_md(i)) for i in list_buf),
+            ))
+            list_buf.clear()
+
+    def flush_quote() -> None:
+        if quoted:
+            out.append('<div class="note">{}</div>'.format(
+                _inline_md(" ".join(quoted))))
+            quoted.clear()
+
+    def flush_all() -> None:
+        flush_para()
+        flush_list()
+        flush_quote()
+
+    idx = 0
+    while idx < len(lines):
+        line = lines[idx]
+        stripped = line.strip()
+        if fenced:
+            if stripped.startswith("```") or stripped.startswith("~~~"):
+                fenced = False
+                out.append("<pre><code>{}</code></pre>".format(
+                    html_lib.escape("\n".join(fence_buf))))
+                fence_buf.clear()
+            else:
+                fence_buf.append(line)
+            idx += 1
+            continue
+        if stripped.startswith("```") or stripped.startswith("~~~"):
+            flush_all()
+            fenced = True
+            idx += 1
+            continue
+        if not stripped:
+            flush_all()
+            idx += 1
+            continue
+        head = re.match(r"^(#{1,6})\s+(.*)$", line)
+        if head:
+            flush_all()
+            level = min(6, max(2, len(head.group(1)) + 1))
+            out.append("<h{L}>{t}</h{L}>".format(
+                L=level, t=_inline_md(head.group(2))))
+            idx += 1
+            continue
+        if stripped.startswith(">"):
+            flush_para()
+            flush_list()
+            quoted.append(stripped.lstrip("> ").strip())
+            idx += 1
+            continue
+        bullet = re.match(r"^[-*•]\s+(.*)$", stripped)
+        if bullet:
+            flush_para()
+            flush_quote()
+            if list_tag != "ul" and list_buf:
+                flush_list()
+            list_tag = "ul"
+            list_buf.append(bullet.group(1))
+            idx += 1
+            continue
+        ordered = re.match(r"^\d+[.、)．]\s+(.*)$", stripped)
+        if ordered:
+            flush_para()
+            flush_quote()
+            if list_tag != "ol" and list_buf:
+                flush_list()
+            list_tag = "ol"
+            list_buf.append(ordered.group(1))
+            idx += 1
+            continue
+        if stripped.startswith("|") and idx + 1 < len(lines) \
+                and re.match(r"^\|[\s:|-]+\|?\s*$", lines[idx + 1].strip() or ""):
+            flush_all()
+            rows: List[List[str]] = []
+            header = [c.strip() for c in stripped.strip("|").split("|")]
+            idx += 2
+            while idx < len(lines) and lines[idx].strip().startswith("|"):
+                rows.append([c.strip() for c in lines[idx].strip().strip("|").split("|")])
+                idx += 1
+            out.append("<table><thead><tr>{}</tr></thead><tbody>{}</tbody></table>".format(
+                "".join("<th>{}</th>".format(_inline_md(c)) for c in header),
+                "".join("<tr>{}</tr>".format(
+                    "".join("<td>{}</td>".format(_inline_md(c)) for c in row))
+                    for row in rows)))
+            continue
+        para.append(stripped)
+        idx += 1
+    flush_all()
+    if fenced and fence_buf:
+        out.append("<pre><code>{}</code></pre>".format(
+            html_lib.escape("\n".join(fence_buf))))
+    return "\n".join(out)
+
+
+def _action_badge(value: Any, label: str) -> str:
+    text = str(value).strip() if has_content(value) else MISSING
+    cls = ACTION_CLASS.get(text, "")
+    if not cls and has_content(value):
+        cls = "dim"
+    return '<div class="k"><span class="k">{}</span><br><span class="badge {}">{}</span></div>'.format(
+        html_lib.escape(label), cls, html_lib.escape(text))
+
+
+def _range_block(price_range: Any) -> str:
+    if not isinstance(price_range, dict) or not (
+        is_number(price_range.get("low")) and is_number(price_range.get("high"))
+    ):
+        return "<p><strong>价格区间</strong>：{}</p>".format(fmt_price_range(price_range))
+    low = float(price_range["low"])
+    high = float(price_range["high"])
+    if low > high:
+        low, high = high, low
+    span = high - low
+    pad = max(span * 0.15, high * 0.01, 0.01)
+    lo_scale = low - pad
+    hi_scale = high + pad
+    left = (low - lo_scale) / (hi_scale - lo_scale) * 100.0
+    width = max((high - low) / (hi_scale - lo_scale) * 100.0, 2.0)
+    return (
+        '<div class="range"><em style="left:{l:.1f}%;width:{w:.1f}%"></em></div>'
+        '<div class="range-labels"><span>{lo}</span><span>{hi}</span></div>'
+        '<p class="note">以上为研究分析区间，不是单点目标价。</p>'
+    ).format(l=left, w=width, lo=fmt_price(low), hi=fmt_price(high))
+
+
+def _render_trend_html(trend: Dict[str, Any]) -> str:
+    parts: List[str] = ['<section class="card"><h2>走势分析</h2>']
+    direction = str(trend.get("direction")).strip() \
+        if has_content(trend.get("direction")) else MISSING
+    if direction not in TREND_DIRECTIONS and direction != MISSING:
+        direction = "{}（非标准取值）".format(direction)
+    parts.append(
+        '<div class="kv">{badge}<div><span class="k">置信度</span>'
+        '{bar}</div><div><span class="k">时间窗</span><br><span class="v">{h}</span></div></div>'
+    ).format(
+        badge=_action_badge(direction, "走势方向"),
+        bar=_bar("置信度", trend.get("confidence")),
+        h=html_lib.escape(str(trend.get("horizon"))) if has_content(trend.get("horizon")) else MISSING,
+    )
+    levels = trend.get("key_levels")
+    levels = levels if isinstance(levels, dict) else {}
+    level_rows: List[Tuple[str, str]] = []
+    for side, fallback in (("support", "支撑"), ("resistance", "阻力")):
+        items = levels.get(side)
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if isinstance(item, dict):
+                kind = item.get("type")
+                kind = str(kind) if has_content(kind) else fallback
+                level_rows.append((kind, fmt_price(item.get("price"))))
+            else:
+                level_rows.append((fallback, MISSING))
+    if level_rows:
+        parts.append("<h3>关键位</h3><table><thead><tr><th>类型</th><th>价位</th></tr></thead><tbody>{}</tbody></table>".format(
+            "".join("<tr><td>{}</td><td>{}</td></tr>".format(
+                html_lib.escape(k), html_lib.escape(p)) for k, p in level_rows)))
+    else:
+        parts.append('<h3>关键位</h3><p class="missing">{}（未提供支撑/阻力关键位）</p>'.format(MISSING))
+    scenarios = trend.get("scenarios")
+    scenario_rows: List[Tuple[str, str, str]] = []
+    if isinstance(scenarios, list):
+        for scenario in scenarios:
+            if not isinstance(scenario, dict):
+                continue
+            name = scenario.get("name")
+            condition = scenario.get("condition")
+            scenario_rows.append((
+                str(name) if has_content(name) else MISSING,
+                " ".join(str(condition).split()) if has_content(condition) else MISSING,
+                fmt_price_range(scenario.get("range")),
+            ))
+    if scenario_rows:
+        parts.append("<h3>情景</h3><table><thead><tr><th>名称</th><th>条件</th><th>区间</th></tr></thead><tbody>{}</tbody></table>".format(
+            "".join("<tr><td>{}</td><td>{}</td><td>{}</td></tr>".format(
+                html_lib.escape(n), html_lib.escape(c), html_lib.escape(s))
+                for n, c, s in scenario_rows)))
+    else:
+        parts.append('<h3>情景</h3><p class="missing">{}（未提供走势情景）</p>'.format(MISSING))
+    parts.append("<h3>走势推理摘要</h3>{}".format(_md_to_html(trend.get("reasoning"), "未提供 reasoning")))
+    parts.append('<div class="note">{}</div>'.format(html_lib.escape(TREND_SECTION_DISCLAIMER)))
+    parts.append("</section>")
+    return "\n".join(parts)
+
+
+def render_html_document(document: Dict[str, Any], warnings: Sequence[Any]) -> str:
+    """Render final.json into a self-contained HTML page."""
+    name = document.get("name")
+    symbol = document.get("symbol")
+    as_of = document.get("as_of")
+    depth = document.get("depth")
+    schema_version = document.get("schema_version")
+
+    if has_content(name) and has_content(symbol):
+        title = "{}（{}）".format(name, symbol)
+    elif has_content(name):
+        title = str(name)
+    elif has_content(symbol):
+        title = str(symbol)
+    else:
+        title = MISSING
+
+    if isinstance(depth, str) and depth in DEPTH_LABELS:
+        depth_display = "{}（{}）".format(DEPTH_LABELS[depth], depth)
+    elif has_content(depth):
+        depth_display = str(depth)
+    else:
+        depth_display = MISSING
+
+    data_quality = document.get("data_quality")
+    data_quality = data_quality if isinstance(data_quality, dict) else {}
+    completeness = data_quality.get("completeness")
+
+    final_section = document.get("final")
+    final_section = final_section if isinstance(final_section, dict) else {}
+    plan = document.get("investment_plan")
+    plan = plan if isinstance(plan, dict) else {}
+    risk = document.get("risk")
+    risk = risk if isinstance(risk, dict) else {}
+    debate = document.get("debate")
+    debate = debate if isinstance(debate, dict) else {}
+    analysts = document.get("analyst_reports")
+    analysts = analysts if isinstance(analysts, dict) else {}
+    enabled = DEPTH_ENABLED.get(depth, {}) if isinstance(depth, str) else {}
+
+    parts: List[str] = []
+    parts.append(
+        "<!doctype html>\n<html lang=\"zh-CN\">\n<head>\n<meta charset=\"utf-8\">\n"
+        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n"
+        "<title>{title} A 股研究报告</title>\n<style>{css}</style>\n</head>\n<body>\n<main>".format(
+            title=html_lib.escape(title), css=HTML_CSS))
+
+    # -- header ------------------------------------------------------------
+    parts.append("<header><h1>{} A 股研究报告</h1>".format(html_lib.escape(title)))
+    parts.append('<p class="lead">本报告由 TAC（tac）Skill 基于预取数据快照生成，'
+                 "仅供研究参考，不构成投资建议。</p>")
+    chips = [
+        "股票代码 <b>{}</b>".format(html_lib.escape(str(symbol) if has_content(symbol) else MISSING)),
+        "报告日期 <b>{}</b>".format(html_lib.escape(str(as_of) if has_content(as_of) else MISSING)),
+        "分析深度 <b>{}</b>".format(html_lib.escape(depth_display)),
+        "数据完整度 <b>{}</b>".format(fmt_pct(completeness)),
+        "schema <b>{}</b>".format(html_lib.escape(str(schema_version) if has_content(schema_version) else MISSING)),
+        "生成时间 <b>{}</b>".format(datetime.now().strftime("%Y-%m-%d %H:%M")),
+    ]
+    parts.append('<ul class="chips">{}</ul></header>'.format(
+        "".join("<span>{}</span>".format(c) for c in chips)))
+
+    # -- conclusion summary --------------------------------------------------
+    risk_level = risk.get("risk_level") if has_content(risk.get("risk_level")) else MISSING
+    risk_cls = RISK_CLASS.get(str(risk_level), "neut")
+    parts.append('<section class="card"><h2>结论摘要</h2><div class="kv">')
+    parts.append(_action_badge(final_section.get("action"), "研究倾向"))
+    parts.append('<div><span class="k">置信度</span>{}</div>'.format(_bar("置信度", final_section.get("confidence"))))
+    parts.append('<div><span class="k">风险等级</span><br><span class="badge {}">{}</span> '
+                 '<span class="k">评分 {}</span></div>'.format(risk_cls, html_lib.escape(str(risk_level)),
+                                                              fmt_pct(risk.get("risk_score"))))
+    parts.append('<div><span class="k">风险敞口</span><br><span class="v">{}</span></div>'.format(
+        html_lib.escape(str(final_section.get("risk_exposure_ratio")))
+        if has_content(final_section.get("risk_exposure_ratio")) else MISSING))
+    parts.append("</div>")
+    parts.append(_range_block(final_section.get("price_analysis_range")))
+    parts.append("<h3>一句话结论</h3>{}".format(_md_to_html(final_section.get("summary"), "未提供 summary")))
+    metrics = document.get("key_metrics")
+    if not isinstance(metrics, dict) or not metrics:
+        metrics = document.get("metrics")
+    if isinstance(metrics, dict) and metrics:
+        rows = "".join("<tr><td>{}</td><td>{}</td></tr>".format(
+            html_lib.escape(str(k)), html_lib.escape(fmt_metric(k, v)))
+            for k, v in metrics.items())
+        parts.append("<h3>关键数据</h3><table><thead><tr><th>指标</th><th>数值</th></tr></thead><tbody>{}</tbody></table>".format(rows))
+    parts.append("</section>")
+
+    # -- six analysts --------------------------------------------------------
+    parts.append('<section class="card"><h2>六位分析师观点</h2>')
+    for role, label in ROLE_LABELS:
+        parts.append("<h3>{}（{}）</h3>".format(html_lib.escape(label), html_lib.escape(role)))
+        value = analysts.get(role)
+        if has_content(value):
+            parts.append(_md_to_html(value))
+        elif not enabled.get(role, True):
+            parts.append('<p class="missing">{}（depth={} 未启用该角色）</p>'.format(MISSING, html_lib.escape(str(depth))))
+        else:
+            parts.append('<p class="missing">{}（未生成该角色报告）</p>'.format(MISSING))
+    parts.append("</section>")
+
+    # -- bull / bear debate ---------------------------------------------------
+    parts.append('<section class="card"><h2>多空辩论</h2>')
+    if not any(has_content(debate.get(key)) for key in ("bull", "bear", "history", "rounds")):
+        parts.append('<p class="missing">{}（未提供多空辩论内容）</p>'.format(MISSING))
+    else:
+        rounds = debate.get("rounds")
+        parts.append('<ul class="chips"><span>辩论轮次 <b>{}</b></span></ul>'.format(
+            html_lib.escape(str(rounds)) if has_content(rounds) else MISSING))
+        parts.append('<div class="sub bull"><h3>多头观点</h3>{}</div>'.format(
+            _md_to_html(debate.get("bull"), "未提供多头汇总观点")))
+        parts.append('<div class="sub bear"><h3>空头观点</h3>{}</div>'.format(
+            _md_to_html(debate.get("bear"), "未提供空头汇总观点")))
+        history = debate.get("history")
+        if isinstance(history, list) and history:
+            parts.append("<h3>辩论记录</h3>")
+            for index, item in enumerate(history, 1):
+                if isinstance(item, dict):
+                    role = item.get("role")
+                    role_label = {"bull": "多头", "bear": "空头"}.get(
+                        role, str(role) if has_content(role) else "发言")
+                    round_no = item.get("round")
+                    heading = "第 {} 轮 · {}".format(round_no, role_label) \
+                        if has_content(round_no) else "记录 {} · {}".format(index, role_label)
+                    text = item.get("text")
+                    if not has_content(text):
+                        text = item.get("content")
+                else:
+                    heading = "记录 {}".format(index)
+                    text = item
+                parts.append('<div class="sub"><h4>{}</h4>{}</div>'.format(
+                    html_lib.escape(heading), _md_to_html(text, "该条辩论记录为空")))
+        elif has_content(debate.get("bull")) or has_content(debate.get("bear")):
+            parts.append('<p class="missing">未提供逐轮辩论记录，以上为汇总观点。</p>')
+    parts.append("</section>")
+
+    # -- trend analysis (optional) --------------------------------------------
+    trend = document.get("trend")
+    if isinstance(trend, dict) and trend:
+        parts.append(_render_trend_html(trend))
+
+    # -- research manager -------------------------------------------------------
+    parts.append('<section class="card"><h2>研究经理结论</h2>')
+    if not any(has_content(plan.get(key)) for key in ("action", "confidence", "points", "reasoning")):
+        parts.append('<p class="missing">{}（未提供 investment_plan）</p>'.format(MISSING))
+    else:
+        parts.append('<div class="kv">{}<div><span class="k">置信度</span>{}</div></div>'.format(
+            _action_badge(plan.get("action"), "研究倾向"),
+            _bar("置信度", plan.get("confidence"))))
+        parts.append("<h3>核心依据</h3>{}".format(_md_to_html(plan.get("points"), "未提供 points")))
+        parts.append("<h3>推理</h3>{}".format(_md_to_html(plan.get("reasoning"), "未提供 reasoning")))
+    parts.append("</section>")
+
+    # -- risk debate -------------------------------------------------------------
+    parts.append('<section class="card"><h2>风险辩论</h2>')
+    if not any(has_content(risk.get(key)) for key in ("risk_level", "risk_score", "key_risks", "risk_control", "opinions")):
+        parts.append('<p class="missing">{}（未提供风险辩论内容）</p>'.format(MISSING))
+    else:
+        parts.append('<div class="kv">{}<div><span class="k">风险评分</span>{}</div></div>'.format(
+            _action_badge(risk_level, "风险等级"),
+            _bar("风险评分", risk.get("risk_score"), risk_cls)))
+        parts.append("<h3>关键风险</h3>{}".format(_md_to_html(risk.get("key_risks"), "未提供 key_risks")))
+        parts.append("<h3>风险控制</h3>{}".format(_md_to_html(risk.get("risk_control"), "未提供 risk_control")))
+        opinions = risk.get("opinions")
+        parts.append("<h3>三方风险观点</h3>")
+        if isinstance(opinions, dict):
+            for role, label in RISK_ROLE_LABELS:
+                parts.append("<h4>{}</h4>{}".format(html_lib.escape(label),
+                                                    _md_to_html(opinions.get(role), "未提供该视角")))
+        elif has_content(opinions):
+            parts.append(_md_to_html(opinions))
+        else:
+            parts.append('<p class="missing">{}（未提供 opinions）</p>'.format(MISSING))
+    parts.append("</section>")
+
+    # -- final conclusion ----------------------------------------------------------
+    parts.append('<section class="card"><h2>最终研究结论</h2>')
+    if not any(has_content(final_section.get(key)) for key in (
+            "action", "confidence", "price_analysis_range", "risk_reference_price",
+            "risk_exposure_ratio", "reasoning", "summary")):
+        parts.append('<p class="missing">{}（未提供 final 结论）</p>'.format(MISSING))
+    else:
+        parts.append('<div class="kv">{}<div><span class="k">置信度</span>{}</div></div>'.format(
+            _action_badge(final_section.get("action"), "研究倾向"),
+            _bar("置信度", final_section.get("confidence"))))
+        parts.append(_range_block(final_section.get("price_analysis_range")))
+        parts.append("<p><strong>风险参考价位</strong>：{}</p>".format(
+            fmt_price(final_section.get("risk_reference_price"))))
+        parts.append("<h3>推理</h3>{}".format(_md_to_html(final_section.get("reasoning"), "未提供 reasoning")))
+        parts.append("<h3>摘要</h3>{}".format(_md_to_html(final_section.get("summary"), "未提供 summary")))
+    parts.append("</section>")
+
+    # -- data quality -----------------------------------------------------------------
+    parts.append('<section class="card"><h2>数据质量与限制</h2>')
+    parts.append(_bar("数据完整度", completeness))
+    parts.append("<h3>数据告警</h3>")
+    if warnings:
+        items = "".join("<li>{}</li>".format(_inline_md(warning_text(item)))
+                        for item in warnings if warning_text(item))
+        parts.append("<ul>{}</ul>".format(items))
+    else:
+        parts.append("<p>未发现数据质量告警。</p>")
+    parts.append("<h3>缺失与降级项</h3>")
+    issues = audit_issues(document)
+    if issues:
+        parts.append("<ul>{}</ul>".format(
+            "".join("<li>{}</li>".format(_inline_md(i)) for i in issues)))
+    else:
+        parts.append("<p>未发现缺失项。</p>")
+    parts.append("<h3>已知限制</h3><ul>")
+    limits = [
+        "数据来自预取快照，行情、财务与新闻可能存在延迟，不代表实时状态。",
+        "缺失字段一律保留为“{}”，未做插值、补零或臆测。".format(MISSING),
+        "分析师、辩论与风险观点由模型生成，可能存在偏差或遗漏。",
+        "价格结论仅为研究区间，不构成单点目标价或买卖价位。",
+    ]
+    if isinstance(depth, str) and depth in DEPTH_ENABLED:
+        disabled = [role for role, on in DEPTH_ENABLED[depth].items() if not on]
+        if disabled:
+            limits.append("depth={}，未启用角色：{}。".format(depth, "、".join(disabled)))
+    parts.append("{} </ul>".format("".join("<li>{}</li>".format(_inline_md(x)) for x in limits)))
+    parts.append("</section>")
+
+    # -- disclaimer ---------------------------------------------------------------------
+    parts.append('<footer><h2>免责声明</h2>')
+    if has_content(final_section.get("disclaimer")):
+        parts.append(_md_to_html(final_section.get("disclaimer")))
+    else:
+        parts.append("<p>本报告仅供研究参考，不构成投资建议。</p>")
+    parts.append("<p>本报告不构成任何证券买卖建议，也不构成对任何人的投资建议，"
+                 "不承诺收益。数据可能存在延迟或错误，投资者应独立判断并自行承担风险。</p></footer>")
+    parts.append("</main>\n</body>\n</html>\n")
+    return "\n".join(parts)
+
+
+# ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
 
@@ -931,7 +1480,7 @@ def load_document(path: str) -> Dict[str, Any]:
 def build_parser() -> argparse.ArgumentParser:
     parser = _ArgumentParser(
         prog="render.py",
-        description="将 A 股研究 final.json 渲染为中文 Markdown 报告。",
+        description="将 A 股研究 final.json 渲染为中文报告（默认自包含 HTML 网页）。",
     )
     parser.add_argument(
         "--input",
@@ -941,7 +1490,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--out",
         default=None,
-        help="输出 Markdown 路径；省略时打印到 stdout",
+        help="输出路径；省略时打印到 stdout",
+    )
+    parser.add_argument(
+        "--format",
+        choices=("html", "md"),
+        default="html",
+        help="输出格式：html（默认，自包含网页）或 md（Markdown）",
     )
     return parser
 
@@ -957,7 +1512,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return 3
 
     document, warnings = prepare(document)
-    markdown = render_document(document, warnings)
+    if args.format == "md":
+        output = render_document(document, warnings)
+    else:
+        output = render_html_document(document, warnings)
 
     if args.out:
         try:
@@ -965,14 +1523,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             if parent:
                 os.makedirs(parent, exist_ok=True)
             with open(args.out, "w", encoding="utf-8") as handle:
-                handle.write(markdown)
+                handle.write(output)
         except OSError as exc:
             print("ERROR: 无法写入 {}: {}".format(args.out, exc), file=sys.stderr)
             return 3
         print("WROTE {}".format(args.out))
     else:
         try:
-            sys.stdout.write(markdown)
+            sys.stdout.write(output)
         except BrokenPipeError:  # pragma: no cover - pipes
             return 0
 

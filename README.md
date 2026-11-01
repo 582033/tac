@@ -1,6 +1,6 @@
 # TAC
 
-**TAC — TradingAgents-CN 的 A 股研究 Skill**：让 Claude Code / Codex / Cursor 等支持 `SKILL.md` 的宿主 AI 自己扮演多智能体，完成取数、技术指标、分析师、多空辩论、风险审阅与最终研究结论，并渲染中文 Markdown 报告。支持两种模式：**research**（单股综合研究，默认）与 **trend**（股价走势分析）。
+**TAC — TradingAgents-CN 的 A 股研究 Skill**：让 Claude Code / Codex / Cursor 等支持 `SKILL.md` 的宿主 AI 自己扮演多智能体，完成取数、技术指标、分析师、多空辩论、风险审阅与最终研究结论，并渲染中文研究报告（默认输出为自包含网页）。支持两种模式：**research**（单股综合研究，默认）与 **trend**（股价走势分析）。
 
 不依赖 LangGraph、MongoDB、Redis，不包含原项目 `core/`、`app/` 代码。运行时只需要 Python 3.9+、pandas、numpy、akshare。
 
@@ -19,7 +19,7 @@ tac/
 │   ├── indicators.py            # 技术指标 -> bundle.tech.json
 │   ├── slice_bundle.py          # 按角色切出最小上下文 -> slices/{role}.json（--mode research|trend）
 │   ├── assemble.py              # 汇总角色报告 -> final.json（含校验，--mode research|trend）
-│   ├── render.py                # final.json -> report.md（纯标准库）
+│   ├── render.py                # final.json -> report.html（纯标准库；--format md 可选 Markdown）
 │   └── selftest.py              # 离线/在线自检
 ├── references/
 │   ├── roles.md                 # research 与 trend 各角色的提示词
@@ -33,10 +33,10 @@ tac/
     └── test_indicators.py
 ```
 
-运行后会在 `data/{symbol}_{as_of}/` 下生成：
+运行后会在 `data/{symbol}/{as_of}/` 下生成（按股票代码分目录、再按日期分子目录）：
 
 ```text
-data/600519_2026-10-31/
+data/600519/2026-10-31/
 ├── bundle.json          # 原始取数结果
 ├── bundle.tech.json     # 追加 technical 段
 ├── slices/              # 每个角色一份最小上下文（由 slice_bundle.py 生成）
@@ -55,10 +55,10 @@ data/600519_2026-10-31/
 │   ├── neutral.md
 │   └── risk_manager.md
 ├── final.json           # 宿主整合后的结构化结论
-└── report.md            # render.py 渲染的最终报告
+└── report.html          # render.py 渲染的最终报告（自包含网页）
 ```
 
-trend 模式下，`reports/` 为 `trend_structure.md`、`trend_cycle.md`、`trend_catalyst.md`、`bull_trend.md`、`bear_trend.md`、`trend_manager.md`、`conservative_trend.md`；`final.json` 增加可选顶层 `trend` 对象，`report.md` 额外包含“走势分析”章节。
+trend 模式下，`reports/` 为 `trend_structure.md`、`trend_cycle.md`、`trend_catalyst.md`、`bull_trend.md`、`bear_trend.md`、`trend_manager.md`、`conservative_trend.md`；`final.json` 增加可选顶层 `trend` 对象，`report.html` 额外包含“走势分析”章节。
 
 ---
 
@@ -102,7 +102,7 @@ PY
 ### 1. 取数
 
 ```bash
-RUN_DIR="data/600519_2026-10-31"
+RUN_DIR="data/600519/2026-10-31"
 mkdir -p "$RUN_DIR/reports"
 python3 scripts/fetch_data.py \
   --symbol 600519 \
@@ -151,7 +151,7 @@ python3 scripts/slice_bundle.py \
 /tac 600519
 ```
 
-（等价说法：“用 tac 以 standard 深度研究 600519，数据在 data/600519_2026-10-31/。”）
+（等价说法：“用 tac 以 standard 深度研究 600519，数据在 data/600519/2026-10-31/。”）
 
 **trend 模式（股价走势分析）**：
 
@@ -159,7 +159,7 @@ python3 scripts/slice_bundle.py \
 /tac 600519 走势        # 或 /tac trend 600519
 ```
 
-期望产物：`reports/trend_structure.md`、`trend_cycle.md`、`trend_catalyst.md`、`bull_trend.md`、`bear_trend.md`、`trend_manager.md`、`conservative_trend.md`，以及含 `trend` 对象（`direction`、`key_levels` 等）与“走势分析”章节的 `final.json` / `report.md`。
+期望产物：`reports/trend_structure.md`、`trend_cycle.md`、`trend_catalyst.md`、`bull_trend.md`、`bear_trend.md`、`trend_manager.md`、`conservative_trend.md`，以及含 `trend` 对象（`direction`、`key_levels` 等）与“走势分析”章节的 `final.json` / `report.html`。
 
 宿主会依次执行：
 
@@ -183,13 +183,17 @@ python3 scripts/assemble.py \
 
 python3 scripts/render.py \
   --input "$RUN_DIR/final.json" \
-  --out "$RUN_DIR/report.md"
+  --format html \
+  --out "$RUN_DIR/report.html"
 ```
 
-`render.py` 只用标准库，可脱离宿主单独运行；省略 `--out` 时输出到 stdout：
+Skill 流程（SKILL.md Phase 4 第 6 步）会在渲染写盘成功后用默认浏览器自动打开报告：`open`（macOS）/ `xdg-open`（Linux）/ `cmd.exe /c start`（Windows），打开失败不阻塞流程；CI 与无界面环境可跳过。直接单独运行 `render.py` 脚本本身不会打开任何程序。
+
+`render.py` 只用标准库，可脱离宿主单独运行；默认输出自包含网页，省略 `--out` 时输出到 stdout；需要 Markdown 时加 `--format md`：
 
 ```bash
-python3 scripts/render.py --input "$RUN_DIR/final.json" > report.md
+python3 scripts/render.py --input "$RUN_DIR/final.json" > report.html
+python3 scripts/render.py --input "$RUN_DIR/final.json" --format md > report.md  # Markdown 备选
 ```
 
 退出码：`0` 成功；`3` 输入非法（文件不可读、JSON 格式错误、不是 `final.json`）。它还会做最后一道 `action` 白名单校验：如果出现“买入/卖出”等词，会归一化为“乐观/审慎/中性”，并把 warning 追加到 `data_quality.warnings`。
@@ -230,7 +234,7 @@ python3 scripts/fetch_data.py --symbol 600519 --out data/600519_bundle.json
 python3 scripts/indicators.py --input data/600519_bundle.json --out data/600519_bundle.tech.json
 
 # 自己按 SKILL.md 的 Phase 2-4 组织分析（可用任意 LLM/人工），产出 final.json
-python3 scripts/render.py --input final.json --out report.md
+python3 scripts/render.py --input final.json --format html --out report.html
 ```
 
 如果只想验证渲染器，可手写一份最小 `final.json`，或参考 `references/output-schema.json`。

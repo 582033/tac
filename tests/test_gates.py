@@ -211,7 +211,7 @@ def test_gates_apply_to_trend_mode():
 
 def test_regression_real_600519_bundle():
     """真实 600519 数据（261 日、财务与估值齐全）不应触发任何门禁。"""
-    real = os.path.join(ROOT, "data", "600519_2026-10-31", "bundle.tech.json")
+    real = os.path.join(ROOT, "data", "600519", "2026-10-31", "bundle.tech.json")
     if not os.path.isfile(real):
         return  # 本地运行产物可能不存在（CI），跳过
     with open(real, "r", encoding="utf-8") as fh:

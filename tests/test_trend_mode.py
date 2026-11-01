@@ -231,7 +231,8 @@ def test_render_trend_section():
         assert assemble.main(["--run-dir", run_dir, "--depth", "standard",
                               "--mode", "trend", "--out", final_path]) == 0
         report_path = os.path.join(run_dir, "report.md")
-        assert render.main(["--input", final_path, "--out", report_path]) == 0
+        assert render.main(["--input", final_path, "--format", "md",
+                            "--out", report_path]) == 0
         with open(report_path, "r", encoding="utf-8") as handle:
             text = handle.read()
 
@@ -275,7 +276,7 @@ def test_render_trend_degrades_gracefully():
         with open(path, "w", encoding="utf-8") as handle:
             json.dump(doc, handle, ensure_ascii=False)
         out = os.path.join(tmp, "report.md")
-        assert render.main(["--input", path, "--out", out]) == 0
+        assert render.main(["--input", path, "--format", "md", "--out", out]) == 0
         with open(out, "r", encoding="utf-8") as handle:
             text = handle.read()
         assert "## 走势分析" in text

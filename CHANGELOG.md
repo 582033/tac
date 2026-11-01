@@ -3,6 +3,14 @@
 本项目所有显著变更均记录于此。
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+### 变更
+
+- **报告输出改为网页**：`render.py` 默认渲染自包含 HTML 报告（`report.html`，纯标准库、无外部依赖、支持深色模式），`--format md` 保留 Markdown 输出。
+- **自动打开报告**：SKILL 流程在渲染写盘成功后用默认浏览器打开报告（open/xdg-open/start 回退链，失败不阻塞）；`render.py` 脚本本身不打开任何程序。
+- **运行目录层级调整**：`data/{symbol}_{as_of}/` → `data/{symbol}/{as_of}/`（按股票代码分目录、再按日期分子目录）；`fetch_data.py` 默认输出路径同步改为 `data/{symbol}/{as_of}/bundle.json`。
+
 ## [1.1.0] - 2026-11-01
 
 ### 变更

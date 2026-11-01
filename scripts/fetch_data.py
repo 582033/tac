@@ -2423,7 +2423,7 @@ def _load_offline_bundle(path: str, requested_symbol: Optional[str] = None,
 
 
 def _default_output(symbol_code: str, as_of_iso: str) -> Path:
-    return Path("data") / ("%s_%s.json" % (symbol_code, as_of_iso))
+    return Path("data") / symbol_code / as_of_iso / "bundle.json"
 
 
 def _write_json(path: Path, data: Dict[str, Any]) -> None:

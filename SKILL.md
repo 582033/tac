@@ -29,7 +29,7 @@ for d in "$PWD" ".claude/skills/tac" "$HOME/.claude/skills/tac"; do
 done
 ```
 
-- 运行目录约定：`data/{symbol}_{as_of}/` 存放本次运行的 `bundle.json`、`bundle.tech.json`、`reports/`、`final.json`、`report.md`。
+- 运行目录约定：`data/{symbol}/{as_of}/`（按股票代码分目录、再按日期分子目录）存放本次运行的 `bundle.json`、`bundle.tech.json`、`reports/`、`final.json`、`report.html`。
 
 ## 1. 适用范围与边界
 
@@ -60,7 +60,7 @@ done
 | 辩论与裁决（Phase 3） | `bull` / `bear` + `research_manager`，输出 `investment_plan` | `bull_trend` / `bear_trend` + `trend_manager`，输出 `{direction, confidence, horizon, key_levels, scenarios, reasoning}` |
 | 风险（Phase 4） | `aggressive` / `conservative` / `neutral` 三角 + `risk_manager` | `conservative_trend` 单角色审阅 |
 | 切片 | `slices/{index,sector,market,fundamentals,news,social}.json`（按 depth 启用） | 复用 `slices/{index,market,news,fundamentals}.json`（`slice_bundle.py --mode trend`） |
-| 输出差异 | `final.json` / `report.md`（research schema） | research schema 基础上增加可选顶层 `trend` 对象；`final.action` 由 `direction` 映射（上行→乐观、震荡→中性、下行→审慎）；`report.md` 增加“走势分析”章节 |
+| 输出差异 | `final.json` / `report.html`（research schema） | research schema 基础上增加可选顶层 `trend` 对象；`final.action` 由 `direction` 映射（上行→乐观、震荡→中性、下行→审慎）；`report.html` 增加“走势分析”章节 |
 | 适用问题 | “这只股票基本面如何、值不值得关注、风险在哪” | “现在是什么趋势、支撑阻力在哪、可能往哪边走” |
 
 ## 3. 前置检查
@@ -98,7 +98,7 @@ PY
 | 1 取数 | 脚本 | `bundle.json` / `bundle.tech.json` | 文件存在且 warnings 已登记 |
 | 2 分析师 | research 6 角色 / trend 3 角色 | `reports/{role}.md` | 已启用角色均有非空报告 |
 | 3 辩论与裁决 | research: bull / bear / research_manager；trend: bull_trend / bear_trend / trend_manager | 辩论记录 + `investment_plan` / trend 裁决 | 轮次达标、action 合法 |
-| 4 风险与整合 | research: 3 风险角色 + risk_manager；trend: conservative_trend；+ 宿主 | `final.json` / `report.md` | render 退出码 0 |
+| 4 风险与整合 | research: 3 风险角色 + risk_manager；trend: conservative_trend；+ 宿主 | `final.json` / `report.html` | render 退出码 0 |
 
 ### Phase 1：取数与指标
 
@@ -107,7 +107,7 @@ PY
 **动作**：
 
 ```bash
-RUN_DIR="data/600519_2026-10-31"
+RUN_DIR="data/600519/2026-10-31"
 mkdir -p "$RUN_DIR/reports"
 python3 scripts/fetch_data.py --symbol 600519 --as-of 2026-10-31 --days 400 --out "$RUN_DIR/bundle.json"
 python3 scripts/indicators.py --input "$RUN_DIR/bundle.json" --out "$RUN_DIR/bundle.tech.json"
@@ -190,14 +190,23 @@ python3 scripts/slice_bundle.py --input "$RUN_DIR/bundle.tech.json" --out-dir "$
 5. 渲染报告：
 
 ```bash
-python3 scripts/render.py --input "$RUN_DIR/final.json" --out "$RUN_DIR/report.md"
+python3 scripts/render.py --input "$RUN_DIR/final.json" --format html --out "$RUN_DIR/report.html"
 ```
 
 当 `final.json` 含 `trend` 对象时，`render.py` 会在报告中追加“走势分析”章节。
 
-**产出**：`$RUN_DIR/final.json`、`$RUN_DIR/report.md`。
+6. 渲染写盘成功后，用默认浏览器打开报告（交互环境）；失败不阻塞流程，CI / 无界面环境直接跳过：
 
-**完成判据**：`final.json` 可被 `render.py` 解析；render 退出码 0；`report.md` 含全部固定章节（trend 模式含“走势分析”章节）；`final.action` 与 `investment_plan.action` 均为三值之一（trend 模式下 `final.trend.direction` 为三值之一且 `final.action` 与映射一致）；价格结论为区间。
+```bash
+( open "$RUN_DIR/report.html" 2>/dev/null \
+  || xdg-open "$RUN_DIR/report.html" 2>/dev/null \
+  || cmd.exe /c start "" "$RUN_DIR/report.html" 2>/dev/null ) \
+  && echo OPENED || echo "自动打开失败，请手动查看 $RUN_DIR/report.html"
+```
+
+**产出**：`$RUN_DIR/final.json`、`$RUN_DIR/report.html`（已尝试在默认浏览器打开）。
+
+**完成判据**：`final.json` 可被 `render.py` 解析；render 退出码 0；`report.html` 含全部固定章节（trend 模式含“走势分析”章节）；`final.action` 与 `investment_plan.action` 均为三值之一（trend 模式下 `final.trend.direction` 为三值之一且 `final.action` 与映射一致）；价格结论为区间。
 
 ## 5. 深度表
 
@@ -266,7 +275,7 @@ trend 模式的辩论轮数（`bull_trend` / `bear_trend`）与 research 相同�
 | 网络超时 | 由脚本内部重试；宿主最多再重试 2 次并退避，避免密集重试 |
 | subagent 失败/超时 | 重试 1 次；仍失败改为顺序执行；再失败该角色标“数据缺失”并下调置信度 |
 | 模型输出不是合法 JSON | 用同一提示词重试 1 次，明确“只输出 JSON，不要解释”；仍失败则提取 JSON 片段修复；无法修复则标缺失，禁止编造 |
-| `render.py` 退出 3 | 检查 `final.json` 是否为合法对象且含已知字段；修复后重跑，不要手改 `report.md` |
+| `render.py` 退出 3 | 检查 `final.json` 是否为合法对象且含已知字段；修复后重跑，不要手改 `report.html` |
 | 数据全部缺失 | 输出“数据不足，无法形成研究结论”，不要给出三值结论 |
 
 ## 10. 参考文件与按需加载
@@ -293,5 +302,5 @@ trend 模式的辩论轮数（`bull_trend` / `bear_trend`）与 research 相同�
 4. Phase 2：`standard` 及以上并行 spawn 分析师（research 六位 / trend 三位）；`quick` 顺序执行。
 5. Phase 3：按 depth 跑多空辩论（首轮并行、后续串行），经理裁决产出 `investment_plan`（research）或 trend 裁决（trend）。
 6. Phase 4：research 走风险三角（首轮并行、后续串行）+ 风险经理，trend 只做 `conservative_trend` 审阅；随后 verifier 校验，`assemble.py --mode` 整合 `final.json`。
-7. `python3 scripts/render.py --input "$RUN_DIR/final.json" --out "$RUN_DIR/report.md"`。
+7. `python3 scripts/render.py --input "$RUN_DIR/final.json" --format html --out "$RUN_DIR/report.html"`；随后按 Phase 4 第 6 步用默认浏览器打开报告（失败不阻塞）。
 8. 检查 `action` 三值、价格区间、免责声明；trend 模式再查 `trend.direction` 与映射。
